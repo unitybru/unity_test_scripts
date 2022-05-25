@@ -1,4 +1,5 @@
 using System.Collections;
+using System.ComponentModel;
 using System.IO;
 using UnityEngine;
 
@@ -7,9 +8,26 @@ using UnityEngine;
 /// </summary>
 public class ImageExporter : MonoBehaviour
 {
-    public KeyCode recordKey = KeyCode.Space;
-    public bool recordGameView = true; // whether or not to capture from the GameView
+    public enum ImageExportMethod
+    {
+        Screen,
+        GameView,
+        GameViewRT,
+    };
 
+    public KeyCode recordKey = KeyCode.Space;
+    public ImageExportMethod method = ImageExportMethod.GameViewRT;
+    private RenderTexture captureTexture;
+
+    void Start()
+    {
+        captureTexture = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGB32)
+        {
+            wrapMode = TextureWrapMode.Repeat
+        };
+        captureTexture.Create();
+        captureTexture.name = "ImageExporter_captureTexture";
+    }
     // Update is called once per frame
     void Update()
     {
@@ -27,16 +45,29 @@ public class ImageExporter : MonoBehaviour
         var paddedFrameString = Time.frameCount.ToString().PadLeft(8, '0');
         var currentFile = new FileInfo($"test_{paddedFrameString}.png");
 
-        Texture2D tex2d;
-        if (recordGameView)
+        Texture2D tex2d = null;
+        switch (method)
         {
-            tex2d = ScreenCapture.CaptureScreenshotAsTexture();
-        }
-        else
-        {
-            tex2d = new Texture2D(Screen.width , Screen.height , TextureFormat.RGBA32 , false);
-            tex2d.ReadPixels(new Rect(0,0,Screen.width, Screen.height), 0 ,0, false);
-            tex2d.Apply();
+            case ImageExportMethod.GameView:
+                tex2d = ScreenCapture.CaptureScreenshotAsTexture();
+                break;
+            case ImageExportMethod.Screen:
+                tex2d = new Texture2D(Screen.width, Screen.height, TextureFormat.RGBA32, false);
+                tex2d.ReadPixels(new Rect(0,0, Screen.width, Screen.height), 0 ,0, false);
+                tex2d.Apply();
+                break;
+            case ImageExportMethod.GameViewRT:
+                ScreenCapture.CaptureScreenshotIntoRenderTexture(captureTexture);
+                tex2d = new Texture2D(Screen.width, Screen.height, TextureFormat.RGBA32, false);
+                // ReadPixels looks at the active RenderTexture.
+                var previous = RenderTexture.active;
+                RenderTexture.active = captureTexture;
+                tex2d.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+                tex2d.Apply();
+                RenderTexture.active = previous; // restore previous
+                break;
+            default:
+                throw new InvalidEnumArgumentException($"Unexpected image export method '{method}'");
         }
         var imgBytes = tex2d.EncodeToPNG();
         File.WriteAllBytes(currentFile.FullName, imgBytes);
